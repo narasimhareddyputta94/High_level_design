@@ -1,18 +1,25 @@
-package Master_Slave_Replication;
+package Enhanced_Master_Slave_Replication_with_Slave_Communication;
+
+import Enhanced_Master_Slave_Replication_with_Slave_Communication.DataRecord;
 
 import java.io.ObjectOutputStream;
+import java.io.ObjectInputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class MasterNode {
     private List<DataRecord> database = new ArrayList<>();
     private List<SlaveNodeConnection> slaves = new ArrayList<>();
     private int port;
+    private int replicationFactor; // Number of acknowledgments required
 
-    public MasterNode(int port) {
+    public MasterNode(int port, int replicationFactor) {
         this.port = port;
+        this.replicationFactor = replicationFactor;
     }
 
     public void start() {
@@ -30,25 +37,40 @@ public class MasterNode {
         }
     }
 
-    public void addDataRecord(DataRecord record) {
+    public boolean addDataRecord(DataRecord record) {
         database.add(record);
-        replicateData(record);
+        return replicateData(record);
     }
 
-    private void replicateData(DataRecord record) {
+    private boolean replicateData(DataRecord record) {
+        CountDownLatch latch = new CountDownLatch(replicationFactor);
+
         for (SlaveNodeConnection slave : slaves) {
-            slave.sendData(record);
+            new Thread(() -> {
+                if (slave.sendData(record)) {
+                    latch.countDown();
+                }
+            }).start();
+        }
+
+        try {
+            return latch.await(5, TimeUnit.SECONDS); // Wait for acknowledgments with a timeout
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            return false;
         }
     }
 
     private class SlaveNodeConnection implements Runnable {
         private Socket socket;
         private ObjectOutputStream outputStream;
+        private ObjectInputStream inputStream;
 
         public SlaveNodeConnection(Socket socket) {
             this.socket = socket;
             try {
                 this.outputStream = new ObjectOutputStream(socket.getOutputStream());
+                this.inputStream = new ObjectInputStream(socket.getInputStream());
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -59,36 +81,26 @@ public class MasterNode {
             // This can be used to listen for messages from the slave if needed
         }
 
-        public void sendData(DataRecord record) {
+        public boolean sendData(DataRecord record) {
             try {
                 outputStream.writeObject(record);
                 outputStream.flush();
+
+                // Wait for acknowledgment
+                return inputStream.readBoolean();
             } catch (Exception e) {
                 e.printStackTrace();
+                return false;
             }
         }
     }
 
     public static void main(String[] args) {
-        MasterNode master = new MasterNode(5000);
+        MasterNode master = new MasterNode(5000, 1); // Example: replication factor of 1
         master.start();
 
         // Adding some data records for testing
-        master.addDataRecord(new DataRecord(1, "First Record"));
-        master.addDataRecord(new DataRecord(2, "Second Record"));
+        System.out.println("Replication successful: " + master.addDataRecord(new DataRecord(1, "First Record")));
+        System.out.println("Replication successful: " + master.addDataRecord(new DataRecord(2, "Second Record")));
     }
 }
-
-//Start the Master Node:
-//
-//Run the MasterNode class. It will start a server on port 5000 and wait for slave nodes to connect.
-//Start the Slave Node:
-//
-//Run the SlaveNode class. It will connect to the master node on localhost:5000 and start receiving replicated data.
-//Add Data to the Master Node:
-//
-//The MasterNode class has a few sample data records added for testing. When these records are added, they will be sent to all connected slave nodes.
-//        Explanation
-//MasterNode: Listens for connections from slave nodes and maintains a list of connected slaves. When a new data record is added, it sends the record to all connected slaves.
-//SlaveNode: Connects to the master node and waits for data records to be sent. When a record is received, it adds it to its local database.
-//This example demonstrates a basic replication model. In a real-world scenario, additional features such as handling disconnections, ensuring data consistency, and more sophisticated replication mechanisms would be needed.
