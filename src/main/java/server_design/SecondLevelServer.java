@@ -4,19 +4,22 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 public class SecondLevelServer {
-    private String database;
-    private Map<String, String> localDataStore = new ConcurrentHashMap<>();
+    private Database database;
 
-    public SecondLevelServer(String database) {
-        this.database = database;
+    public SecondLevelServer(String dbName) {
+        this.database = new Database(dbName);
     }
 
     public void storeData(String key, String value) {
-        localDataStore.put(key, value);
+        database.storeData(key, value);
     }
 
     public String getData(String key) {
-        return localDataStore.get(key);
+        return database.getData(key);
+    }
+
+    public Database getDatabase() {
+        return database;
     }
 
     @Override
@@ -35,7 +38,7 @@ public class SecondLevelServer {
     @Override
     public String toString() {
         return "SecondLevelServer{" +
-                "database='" + database + '\'' +
+                "database=" + database +
                 '}';
     }
 }
